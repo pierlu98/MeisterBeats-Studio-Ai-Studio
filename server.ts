@@ -7,13 +7,15 @@ import videosRouter from './src/routes/videos';
 import tiersRouter from './src/routes/tiers';
 import purchasesRouter from './src/routes/purchases';
 import { initializeDatabase } from './src/services/db';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 async function startServer() {
   const app = express();
   app.use(express.json()); // Middleware to parse JSON bodies
 
   initializeDatabase();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   app.use(
     session({
@@ -40,7 +42,15 @@ app.use('/api/tiers', tiersRouter);
   });
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV === 'production') {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    app.use(express.static(path.join(__dirname, 'dist')));
+
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    });
+  } else {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
