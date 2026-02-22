@@ -3,6 +3,9 @@ import session from 'express-session';
 import { createServer as createViteServer } from 'vite';
 import authRouter from './src/routes/auth';
 import projectsRouter from './src/routes/projects';
+import videosRouter from './src/routes/videos';
+import tiersRouter from './src/routes/tiers';
+import purchasesRouter from './src/routes/purchases';
 import { initializeDatabase } from './src/services/db';
 
 async function startServer() {
@@ -28,6 +31,10 @@ async function startServer() {
   // API routes
   app.use('/api/auth', authRouter);
   app.use('/api/projects', projectsRouter);
+  app.use('/api/videos', videosRouter);
+  // Stripe webhook needs to be before the default JSON parser
+app.use('/api/purchases', purchasesRouter);
+app.use('/api/tiers', tiersRouter);
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
   });

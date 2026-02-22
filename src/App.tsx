@@ -58,11 +58,26 @@ export default function App() {
     setUser(null);
   };
 
+  const urlParams = new URLSearchParams(window.location.search);
+  const paymentStatus = urlParams.get('payment');
+
   return (
-    <div className="min-h-screen bg-[#151619] text-gray-200 font-sans flex flex-col items-center p-4 sm:p-6 lg:p-8">
-      <div className="w-full max-w-7xl">
+    <div className="min-h-screen bg-[#151619] text-gray-200 font-sans flex flex-col items-center">
+      {paymentStatus === 'success' && (
+        <div className="w-full p-2 text-center text-sm bg-green-600 text-white">
+          Payment successful! Your purchase has been recorded.
+        </div>
+      )}
+      {paymentStatus === 'cancel' && (
+        <div className="w-full p-2 text-center text-sm bg-red-600 text-white">
+          Payment canceled. You have not been charged.
+        </div>
+      )}
+      <div className="w-full flex-grow flex flex-col items-center p-4 sm:p-6 lg:p-8">
+        <div className="w-full max-w-7xl">
         <Header user={user} onConnect={handleConnect} onLogout={handleLogout} />
         <Dashboard user={user} />
+        </div>
       </div>
     </div>
   );

@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { generateMusicalIdea } from '../services/geminiService';
 import AIGenerator from './AIGenerator';
 import ProjectList from './ProjectList';
+import VideoPlayer from './VideoPlayer';
+import TierStatus from './TierStatus';
+import PurchaseButton from './PurchaseButton';
 import { User, Project } from '../types';
 
 interface DashboardProps {
@@ -103,6 +106,9 @@ export default function Dashboard({ user }: DashboardProps) {
             </div>
           )}
 
+          <TierStatus user={user} />
+          <VideoPlayer user={user} videoId="sample-video-1" videoTitle="Tutorial: Crafting the Perfect Lofi Beat" durationSeconds={300} />
+          <PurchaseButton beatId="sample-beat-01" />
           <ProjectList projects={projects} />
         </>
       ) : (

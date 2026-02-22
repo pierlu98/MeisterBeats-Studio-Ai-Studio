@@ -5,6 +5,7 @@
 
 import express from 'express';
 import { getAccessToken, getGithubUser } from '../services/github';
+import db from '../services/db';
 
 const router = express.Router();
 
