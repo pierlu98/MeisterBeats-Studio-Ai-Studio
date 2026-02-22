@@ -4,7 +4,8 @@ import AIGenerator from './AIGenerator';
 import ProjectList from './ProjectList';
 import VideoPlayer from './VideoPlayer';
 import TierStatus from './TierStatus';
-import PurchaseButton from './PurchaseButton';
+
+import BeatCard from './BeatCard';
 import { User, Project } from '../types';
 
 interface DashboardProps {
@@ -16,6 +17,7 @@ export default function Dashboard({ user }: DashboardProps) {
   const [generatedIdea, setGeneratedIdea] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [lastPrompt, setLastPrompt] = useState({ genre: '', mood: '', tempo: '' });
+  const [isPurchasing, setIsPurchasing] = useState(false);
 
   const fetchProjects = async () => {
     if (!user) return;
@@ -48,6 +50,28 @@ export default function Dashboard({ user }: DashboardProps) {
     const result = await generateMusicalIdea(prompt);
     setGeneratedIdea(result);
     setIsLoading(false);
+  };
+
+  const handlePurchase = async (beatId: string) => {
+    setIsPurchasing(true);
+    try {
+      const response = await fetch('/api/purchases/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ beatId }),
+      });
+
+      if (response.ok) {
+        const { url } = await response.json();
+        window.location.href = url; // Redirect to Stripe Checkout
+      } else {
+        console.error('Failed to create checkout session');
+        setIsPurchasing(false);
+      }
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+      setIsPurchasing(false);
+    }
   };
 
   const handleSaveProject = async () => {
@@ -108,7 +132,21 @@ export default function Dashboard({ user }: DashboardProps) {
 
           <TierStatus user={user} />
           <VideoPlayer user={user} videoId="sample-video-1" videoTitle="Tutorial: Crafting the Perfect Lofi Beat" durationSeconds={300} />
-          <PurchaseButton beatId="sample-beat-01" />
+          
+          <div className="mt-6">
+            <BeatCard 
+              beatTitle="Sunset Drive"
+              producerName="Meister Beats"
+              youtubeId="dQw4w9WgXcQ" // Placeholder video
+              beatstarsUrl="https://www.beatstars.com/player/?beattype=mp3&beatid=11245000"
+              basePrice={2999} // $29.99
+              discountPercentage={15}
+              isLifetimeDiscount={false}
+              onPurchase={handlePurchase}
+              collabUrl="https://discord.gg/your-server"
+              beatId="sunset-drive-01"
+            />
+          </div>
           <ProjectList projects={projects} />
         </>
       ) : (
