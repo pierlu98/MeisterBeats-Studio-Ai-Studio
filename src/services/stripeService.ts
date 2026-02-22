@@ -4,7 +4,7 @@
  */
 
 import Stripe from 'stripe';
-import db from './db';
+import { supabase } from './supabase';
 import { getBestDiscount } from './tierService';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
@@ -14,7 +14,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
 const BEAT_PRICE_CENTS = 1000; // $10.00
 
 export async function createCheckoutSession(userId: string, beatId: string, successUrl: string, cancelUrl: string) {
-  const discount = getBestDiscount(userId);
+  const discount = await getBestDiscount(userId);
   let couponId: string | undefined = undefined;
 
   if (discount.percentage > 0) {
@@ -55,7 +55,7 @@ export async function createCheckoutSession(userId: string, beatId: string, succ
   return session;
 }
 
-export function handleWebhook(payload: Buffer, sig: string): boolean {
+export async function handleWebhook(payload: Buffer, sig: string): Promise<boolean> {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
   let event: Stripe.Event;
 
@@ -70,27 +70,52 @@ export function handleWebhook(payload: Buffer, sig: string): boolean {
     const session = event.data.object as Stripe.Checkout.Session;
     const { userId, beatId, appliedDiscount, isLifetime } = session.metadata!;
 
-    db.transaction(() => {
-      const existingPurchase = db.prepare('SELECT status FROM purchases WHERE id = ?').get(session.id);
-      if (existingPurchase) {
-        console.log(`Duplicate webhook received for session: ${session.id}`);
-        return; // Idempotency: already processed
-      }
+    const { data: existingPurchase, error: fetchError } = await supabase
+      .from('purchases')
+      .select('status')
+      .eq('id', session.id)
+      .single();
 
-      const insertPurchase = db.prepare(
-        'INSERT INTO purchases (id, userId, beatId, amount, currency, status) VALUES (?, ?, ?, ?, ?, ?)'
-      );
-      insertPurchase.run(session.id, userId, beatId, session.amount_total!, session.currency!, 'completed');
+    if (existingPurchase) {
+      console.log(`Duplicate webhook received for session: ${session.id}`);
+      return; // Idempotency: already processed
+    }
 
-      if (Number(appliedDiscount) > 0 && isLifetime === 'false') {
-        // Decrement the limited-use discount
-        const tierStatus = db.prepare('SELECT tier FROM tier_status WHERE userId = ?').get(userId);
-        const currentTier = tierStatus?.tier || 0;
-        db.prepare('UPDATE discount_usage SET usesLeft = usesLeft - 1 WHERE userId = ? AND tier = ? AND usesLeft > 0').run(userId, currentTier);
-      }
+    await supabase.from('purchases').insert({
+      id: session.id,
+      userId,
+      beatId,
+      amount: session.amount_total!,
+      currency: session.currency!,
+      status: 'completed',
+    });
+
+    if (Number(appliedDiscount) > 0 && isLifetime === 'false') {
+      const { data: tierStatus } = await supabase
+        .from('tier_status')
+        .select('tier')
+        .eq('userId', userId)
+        .single();
       
-      console.log(`Purchase fulfilled for user ${userId}, beat ${beatId}`);
-    })();
+      const currentTier = tierStatus?.tier || 0;
+
+      const { data: discount } = await supabase
+        .from('discount_usage')
+        .select('usesLeft')
+        .eq('userId', userId)
+        .eq('tier', currentTier)
+        .single();
+
+      if (discount && discount.usesLeft > 0) {
+        await supabase
+          .from('discount_usage')
+          .update({ usesLeft: discount.usesLeft - 1 })
+          .eq('userId', userId)
+          .eq('tier', currentTier);
+      }
+    }
+    
+    console.log(`Purchase fulfilled for user ${userId}, beat ${beatId}`);
   }
 
   return true;

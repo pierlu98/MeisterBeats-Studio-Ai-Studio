@@ -5,18 +5,12 @@
 
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import db from '../services/db';
+import { supabase } from '../services/supabase';
 import { updateUserTier } from '../services/tierService';
 
 const router = express.Router();
 
-// Middleware to check for authenticated user
-router.use((req, res, next) => {
-  if (!req.session.user) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
-  next();
-});
+
 
 const progressLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -26,27 +20,41 @@ const progressLimiter = rateLimit({
 });
 
 // POST /api/videos/:videoId/progress
-router.post('/:videoId/progress', progressLimiter, (req, res) => {
+router.post('/:videoId/progress', progressLimiter, async (req, res) => {
   const { videoId } = req.params;
   const { reportedWatchTime } = req.body;
-  const userId = req.session.user!.id;
+  const userId = (req as any).user.id;
 
   if (typeof reportedWatchTime !== 'number' || reportedWatchTime < 0) {
     return res.status(400).json({ message: 'Invalid watch time provided.' });
   }
 
-  const video = db.prepare('SELECT durationSeconds FROM videos WHERE id = ?').get(videoId);
+  const { data: video, error: videoError } = await supabase
+      .from('videos')
+      .select('durationSeconds')
+      .eq('id', videoId)
+      .single();
   if (!video) {
     return res.status(404).json({ message: 'Video not found.' });
   }
 
-  const completionRecord = db.prepare('SELECT 1 FROM video_completions WHERE userId = ? AND videoId = ?').get(userId, videoId);
+  const { data: completionRecord, error: completionError } = await supabase
+      .from('video_completions')
+      .select('userId')
+      .eq('userId', userId)
+      .eq('videoId', videoId)
+      .single();
   if (completionRecord) {
     return res.status(200).json({ message: 'Video already completed.' });
   }
 
   const now = new Date();
-  const history = db.prepare('SELECT watchTimeSeconds, lastUpdated FROM watch_history WHERE userId = ? AND videoId = ?').get(userId, videoId);
+  const { data: history, error: historyError } = await supabase
+      .from('watch_history')
+      .select('watchTimeSeconds, lastUpdated')
+      .eq('userId', userId)
+      .eq('videoId', videoId)
+      .single();
 
   let currentWatchTime = 0;
   let lastUpdated = now;
@@ -66,17 +74,18 @@ router.post('/:videoId/progress', progressLimiter, (req, res) => {
     lastUpdated = new Date(history.lastUpdated);
   }
   
-  const upsertHistory = db.prepare(
-    'INSERT INTO watch_history (userId, videoId, watchTimeSeconds, lastUpdated) VALUES (?, ?, ?, ?) ON CONFLICT(userId, videoId) DO UPDATE SET watchTimeSeconds = excluded.watchTimeSeconds, lastUpdated = excluded.lastUpdated'
-  );
-  upsertHistory.run(userId, videoId, currentWatchTime, now.toISOString());
+  const { error: upsertError } = await supabase.from('watch_history').upsert({
+      userId,
+      videoId,
+      watchTimeSeconds: currentWatchTime,
+      lastUpdated: now.toISOString(),
+    });
 
   const completionThreshold = video.durationSeconds * 0.8;
   if (currentWatchTime >= completionThreshold) {
-    const insertCompletion = db.prepare('INSERT OR IGNORE INTO video_completions (userId, videoId) VALUES (?, ?)');
-    const result = insertCompletion.run(userId, videoId);
+    const { data, error } = await supabase.from('video_completions').insert([{ userId, videoId }]);
 
-    if (result.changes > 0) {
+    if (data && (data as any[]).length > 0) {
       // This is a new completion, so update the tier
       updateUserTier(userId);
     }

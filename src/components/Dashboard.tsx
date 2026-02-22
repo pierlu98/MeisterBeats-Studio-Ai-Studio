@@ -6,7 +6,9 @@ import VideoPlayer from './VideoPlayer';
 import TierStatus from './TierStatus';
 
 import BeatCard from './BeatCard';
-import { User, Project } from '../types';
+import TierProgressChart from './TierProgressChart';
+import { User, Project, TierStatusInfo } from '../types';
+import { fetchWithAuth } from '../utils/api';
 
 interface DashboardProps {
   user: User | null;
@@ -18,11 +20,12 @@ export default function Dashboard({ user }: DashboardProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [lastPrompt, setLastPrompt] = useState({ genre: '', mood: '', tempo: '' });
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [tierStatus, setTierStatus] = useState<TierStatusInfo | null>(null);
 
   const fetchProjects = async () => {
     if (!user) return;
     try {
-      const response = await fetch('/api/projects');
+      const response = await fetchWithAuth('/api/projects');
       if (response.ok) {
         const data = await response.json();
         setProjects(data);
@@ -33,7 +36,21 @@ export default function Dashboard({ user }: DashboardProps) {
   };
 
   useEffect(() => {
+    const fetchTierStatus = async () => {
+      if (!user) return;
+      try {
+        const response = await fetchWithAuth('/api/tiers/status');
+        if (response.ok) {
+          const data = await response.json();
+          setTierStatus(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch tier status:', error);
+      }
+    };
+
     fetchProjects();
+    fetchTierStatus();
   }, [user]);
 
   const handleGenerate = async (prompt: string) => {
@@ -55,7 +72,7 @@ export default function Dashboard({ user }: DashboardProps) {
   const handlePurchase = async (beatId: string) => {
     setIsPurchasing(true);
     try {
-      const response = await fetch('/api/purchases/create-checkout-session', {
+      const response = await fetchWithAuth('/api/purchases/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ beatId }),
@@ -80,7 +97,7 @@ export default function Dashboard({ user }: DashboardProps) {
     const projectName = `Project - ${new Date().toLocaleString()}`;
 
     try {
-      const response = await fetch('/api/projects', {
+      const response = await fetchWithAuth('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -130,7 +147,8 @@ export default function Dashboard({ user }: DashboardProps) {
             </div>
           )}
 
-          <TierStatus user={user} />
+          {tierStatus && <TierStatus tierStatus={tierStatus} />}
+          {tierStatus && <TierProgressChart tierStatus={tierStatus} />}
           <VideoPlayer user={user} videoId="sample-video-1" videoTitle="Tutorial: Crafting the Perfect Lofi Beat" durationSeconds={300} />
           
           <div className="mt-6">

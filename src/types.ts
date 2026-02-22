@@ -19,3 +19,14 @@ export interface User {
   displayName: string;
   avatarUrl?: string;
 }
+
+export interface TierStatusInfo {
+  tier: number;
+  completedVideos: number;
+  videosForNextTier: number;
+  discount: {
+    percentage: number;
+    isLifetime: boolean;
+    usesLeft?: number;
+  };
+}

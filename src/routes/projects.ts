@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import db from '../services/db';
+import { supabase } from '../services/supabase';
 
 const router = express.Router();
 
@@ -17,27 +17,43 @@ router.use((req, res, next) => {
 });
 
 // GET /api/projects - List user's projects
-router.get('/', (req, res) => {
-  const getProjects = db.prepare('SELECT * FROM projects WHERE userId = ? ORDER BY createdAt DESC');
-  const projects = getProjects.all(req.session.user!.id);
-  res.json(projects);
+router.get('/', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('userId', req.session.user!.id)
+      .order('createdAt', { ascending: false });
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    console.error('Failed to fetch projects:', error);
+    res.status(500).json({ message: 'Failed to fetch projects' });
+  }
 });
 
 // POST /api/projects - Create a new project
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { name, genre, mood, tempo, idea } = req.body;
-  const userId = req.session.user!.id;
+  const userId = (req as any).user.id;
 
   if (!name) {
     return res.status(400).json({ message: 'Project name is required.' });
   }
 
-  const createProject = db.prepare(
-    'INSERT INTO projects (userId, name, genre, mood, tempo, idea) VALUES (?, ?, ?, ?, ?, ?)'
-  );
-  const result = createProject.run(userId, name, genre, mood, tempo, idea);
+  try {
+    const { data, error } = await supabase
+      .from('projects')
+      .insert([{ userId, name, genre, mood, tempo, idea }])
+      .select();
 
-  res.status(201).json({ id: result.lastInsertRowid });
+    if (error) throw error;
+    res.status(201).json(data[0]);
+  } catch (error) {
+    console.error('Failed to create project:', error);
+    res.status(500).json({ message: 'Failed to create project' });
+  }
 });
 
 export default router;

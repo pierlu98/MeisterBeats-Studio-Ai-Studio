@@ -11,50 +11,34 @@ import { useEffect, useState } from 'react';
 import Dashboard from './components/Dashboard';
 import Header from './components/Header';
 import { User } from './types';
+import { supabase } from './services/supabase';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
 
-  const fetchUser = async () => {
-    try {
-      const response = await fetch('/api/auth/user');
-      if (response.ok) {
-        const user = await response.json();
-        setUser(user);
-      } else {
-        setUser(null);
-      }
-    } catch (error) {
-      console.error('Failed to fetch user:', error);
-      setUser(null);
-    }
-  };
-
   useEffect(() => {
-    fetchUser();
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      const currentUser = session?.user;
+      setUser(currentUser ? {
+        id: currentUser.id,
+        displayName: currentUser.user_metadata.full_name,
+        avatarUrl: currentUser.user_metadata.avatar_url,
+      } : null);
+    });
 
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_SUCCESS') {
-        fetchUser();
-      }
+    return () => {
+      authListener.subscription.unsubscribe();
     };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
   }, []);
 
   const handleConnect = async () => {
-    try {
-      const response = await fetch('/api/auth/url');
-      const { url } = await response.json();
-      window.open(url, 'oauth_popup', 'width=600,height=700');
-    } catch (error) {
-      console.error('Failed to get auth URL:', error);
-    }
+    await supabase.auth.signInWithOAuth({
+      provider: 'github',
+    });
   };
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await supabase.auth.signOut();
     setUser(null);
   };
 

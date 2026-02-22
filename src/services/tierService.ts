@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import db from './db';
+import { supabase } from './supabase';
 
 const TIER_THRESHOLDS = {
   1: 10,
@@ -27,48 +27,60 @@ export function calculateTier(completedVideos: number): number {
   return 0;
 }
 
-export function updateUserTier(userId: string) {
-  const { count } = db.prepare('SELECT COUNT(*) as count FROM video_completions WHERE userId = ?').get(userId);
+export async function updateUserTier(userId: string) {
+  const { count, error: countError } = await supabase
+    .from('video_completions')
+    .select('*', { count: 'exact', head: true })
+    .eq('userId', userId);
   const newTier = calculateTier(count);
 
-  const currentTierStatus = db.prepare('SELECT tier FROM tier_status WHERE userId = ?').get(userId);
+  const { data: currentTierStatus, error: tierError } = await supabase
+    .from('tier_status')
+    .select('tier')
+    .eq('userId', userId)
+    .single();
   const currentTier = currentTierStatus?.tier || 0;
 
   if (newTier > currentTier) {
     // Tier up!
-    db.transaction(() => {
-      const upsertTier = db.prepare(
-        'INSERT INTO tier_status (userId, tier, completedVideos, lastCalculated) VALUES (?, ?, ?, ?) ON CONFLICT(userId) DO UPDATE SET tier = excluded.tier, completedVideos = excluded.completedVideos, lastCalculated = excluded.lastCalculated'
-      );
-      upsertTier.run(userId, newTier, count, new Date().toISOString());
+    const { error: upsertTierError } = await supabase.from('tier_status').upsert({
+      userId,
+      tier: newTier,
+      completedVideos: count,
+      lastCalculated: new Date().toISOString(),
+    });
 
-      // Reset/grant limited discounts for the new tier
-      const rewards = TIER_REWARDS[newTier];
-      if (rewards.limitedDiscount) {
-        const upsertDiscount = db.prepare(
-          'INSERT INTO discount_usage (userId, tier, usesLeft) VALUES (?, ?, ?) ON CONFLICT(userId, tier) DO UPDATE SET usesLeft = excluded.usesLeft'
-        );
-        upsertDiscount.run(userId, newTier, rewards.limitedDiscount.uses);
-      }
-      if (rewards.nextLimitedDiscount) {
-        // This is a special case for Tier 3
-        const upsertDiscount = db.prepare(
-          'INSERT INTO discount_usage (userId, tier, usesLeft) VALUES (?, ?, ?) ON CONFLICT(userId, tier) DO UPDATE SET usesLeft = excluded.usesLeft'
-        );
-        upsertDiscount.run(userId, 3.1, rewards.nextLimitedDiscount.uses); // Using a float to distinguish
-      }
-    })();
+    const rewards = TIER_REWARDS[newTier];
+    if (rewards.limitedDiscount) {
+      await supabase.from('discount_usage').upsert({
+        userId,
+        tier: newTier,
+        usesLeft: rewards.limitedDiscount.uses,
+      });
+    }
+    if (rewards.nextLimitedDiscount) {
+      await supabase.from('discount_usage').upsert({
+        userId,
+        tier: 3.1,
+        usesLeft: rewards.nextLimitedDiscount.uses,
+      });
+    }
   } else {
     // Just update the video count
-    const upsertTier = db.prepare(
-      'INSERT INTO tier_status (userId, completedVideos, lastCalculated) VALUES (?, ?, ?) ON CONFLICT(userId) DO UPDATE SET completedVideos = excluded.completedVideos, lastCalculated = excluded.lastCalculated'
-    );
-    upsertTier.run(userId, count, new Date().toISOString());
+    await supabase.from('tier_status').upsert({
+      userId,
+      completedVideos: count,
+      lastCalculated: new Date().toISOString(),
+    });
   }
 }
 
-export function getBestDiscount(userId: string): { percentage: number, isLifetime: boolean } {
-  const tierStatus = db.prepare('SELECT tier FROM tier_status WHERE userId = ?').get(userId);
+export async function getBestDiscount(userId: string): Promise<{ percentage: number, isLifetime: boolean }> {
+  const { data: tierStatus, error: tierError } = await supabase
+    .from('tier_status')
+    .select('tier')
+    .eq('userId', userId)
+    .single();
   const currentTier = tierStatus?.tier || 0;
 
   let bestDiscount = { percentage: 0, isLifetime: false };
@@ -82,7 +94,11 @@ export function getBestDiscount(userId: string): { percentage: number, isLifetim
   }
 
   // Check for limited-time offers
-  const discounts = db.prepare('SELECT tier, usesLeft FROM discount_usage WHERE userId = ? AND usesLeft > 0').all(userId);
+  const { data: discounts, error: discountError } = await supabase
+    .from('discount_usage')
+    .select('tier, usesLeft')
+    .eq('userId', userId)
+    .gt('usesLeft', 0);
   for (const discount of discounts) {
     const reward = TIER_REWARDS[Math.floor(discount.tier)];
     let discountConfig;
